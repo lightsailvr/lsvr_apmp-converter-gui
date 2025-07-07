@@ -8,6 +8,7 @@ Main SwiftUI view for the Projected Media Conversion application.
 import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
+import AVFoundation
 
 struct ContentView: View {
     @StateObject private var conversionManager = ConversionManager()

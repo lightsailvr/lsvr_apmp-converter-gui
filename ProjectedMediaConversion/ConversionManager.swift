@@ -7,6 +7,7 @@ Manages the queue of video conversions and coordinates with the conversion logic
 
 import Foundation
 import SwiftUI
+import AVFoundation
 
 @MainActor
 class ConversionManager: ObservableObject {
@@ -210,19 +211,20 @@ class ConversionManager: ObservableObject {
         print("✅ APMP conversion completed in \(String(format: "%.2f", conversionTime)) seconds")
         
         // Now handle audio processing if needed
-        if audioConfiguration.hasExternalAudio || await hasSourceAudio(inputURL) {
+        let sourceHasAudio = await hasSourceAudio(inputURL)
+        if audioConfiguration.hasExternalAudio || sourceHasAudio {
             print("🔊 Starting audio processing...")
             let audioProcessor = AudioProcessor()
             let finalOutputURL = try await audioProcessor.processAudio(
                 videoURL: outputURL,
                 sourceVideoURL: inputURL,
                 audioConfiguration: audioConfiguration,
-                progressCallback: { audioProgress in
+                progressCallback: { @Sendable audioProgress in
                     Task { @MainActor in
                         await self.updateItemAudioProgress(at: index, audioProgress: audioProgress)
                     }
                 },
-                statusCallback: { status in
+                statusCallback: { @Sendable status in
                     Task { @MainActor in
                         await self.updateItemAudioStatus(at: index, audioStatus: status)
                     }

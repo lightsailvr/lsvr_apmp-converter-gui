@@ -10,9 +10,15 @@ This is an Apple sample code project that demonstrates converting projected vide
 
 ## Build and Run Commands
 
+**IMPORTANT: Development Environment Requirements**
+- **macOS**: macOS 26.0 Developer Beta (required)
+- **Xcode**: Xcode Beta located at `/Applications/Xcode-beta.app` (required)
+- **Modern APIs**: This project uses cutting-edge APIs only available in the latest developer betas
+- **DO NOT downgrade deployment targets** - always use the newest available APIs and resolve build errors with modern approaches
+
 **Build the project:**
 ```bash
-xcodebuild -project ProjectedMediaConversion.xcodeproj -scheme ProjectedMediaConversion -configuration Debug build
+/Applications/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild -project ProjectedMediaConversion.xcodeproj -scheme ProjectedMediaConversion -configuration Debug build
 ```
 
 **Run from command line after building:**
@@ -81,14 +87,13 @@ ProjectedMediaConversion/
 
 ## Development Notes
 
-- The project uses Xcode 16.0+ (LastUpgradeVersion = "2600")
-- Swift concurrency is used throughout (`async`/`await`)
-- The scheme includes sample command-line arguments for testing
-- Sample video file: `Lighthouse_sbs.mp4` (side-by-side stereoscopic)
-- Output files are named with `_apmp.mov` suffix
-- **Project Type**: Changed from command-line tool to macOS SwiftUI application
-- **Target**: macOS 26.0+ with Swift 6.0
+- **Development Environment**: macOS 26.0 Developer Beta with Xcode Beta
+- **Modern APIs**: Uses latest AVFoundation, CoreMedia, and VideoToolbox APIs
+- **Swift concurrency**: Uses modern async/await patterns throughout
+- **Project Type**: macOS SwiftUI application targeting the latest platform features
+- **Target**: macOS 26.0+ with Swift 6.0 (cutting-edge features required)
 - **Window Size**: Default 1000×700 pixels, suitable for 1080p displays
+- **API Philosophy**: Always use the most modern APIs available - never downgrade for compatibility
 
 ## Development Guidelines
 

@@ -27,7 +27,18 @@ class AudioProcessor {
         statusCallback: @escaping (AudioProcessingStatus) -> Void
     ) async throws -> URL {
         
-        let finalOutputURL = videoURL.deletingPathExtension().appendingPathExtension("mov")
+        // Create unique output filename to avoid overwriting input
+        let baseURL = videoURL.deletingPathExtension()
+        let finalOutputURL = baseURL.appendingPathExtension("mov")
+        
+        // If output would be same as input, create a unique name
+        let uniqueOutputURL: URL
+        if finalOutputURL == videoURL {
+            let fileName = baseURL.lastPathComponent + "_with_audio"
+            uniqueOutputURL = baseURL.deletingLastPathComponent().appendingPathComponent(fileName).appendingPathExtension("mov")
+        } else {
+            uniqueOutputURL = finalOutputURL
+        }
         
         // Step 1: Analyze audio requirements
         statusCallback(.analyzing)
@@ -37,6 +48,21 @@ class AudioProcessor {
             sourceVideoURL: sourceVideoURL,
             audioConfiguration: audioConfiguration
         )
+        
+        // Check if it's stereo audio - use simpler approach
+        if audioSource.channels == 2 && !audioSource.isExternal {
+            print("🔊 Using direct export for stereo audio")
+            return try await exportVideoWithStereoAudio(
+                videoURL: videoURL,
+                sourceVideoURL: sourceVideoURL,
+                outputURL: uniqueOutputURL,
+                progressCallback: progressCallback,
+                statusCallback: statusCallback
+            )
+        }
+        
+        // For ambisonic audio, use the complex pipeline
+        print("🔊 Using extract-encode-mux pipeline for ambisonic audio")
         
         // Step 2: Extract/prepare audio
         statusCallback(.extracting)
@@ -60,7 +86,7 @@ class AudioProcessor {
         let finalURL = try await muxAudioWithVideo(
             videoURL: videoURL,
             audioURL: apacAudioURL,
-            outputURL: finalOutputURL
+            outputURL: uniqueOutputURL
         )
         
         // Cleanup temporary files
@@ -116,24 +142,19 @@ class AudioProcessor {
         let tempDir = FileManager.default.temporaryDirectory
         let audioOutputURL = tempDir.appendingPathComponent("extracted_audio.m4a")
         
+        print("🔊 Extracting audio from: \(source.url)")
+        print("📁 Temp directory: \(tempDir)")
+        print("📁 Audio output URL: \(audioOutputURL)")
+        
         // Remove existing temp file
         try? FileManager.default.removeItem(at: audioOutputURL)
         
         let asset = AVURLAsset(url: source.url)
         
-        // Create export session
-        guard let exportSession = AVAssetExportSession(
-            asset: asset,
-            presetName: AVAssetExportPresetAppleM4A
-        ) else {
-            throw AudioProcessingError.exportSessionCreationFailed
-        }
-        
-        exportSession.outputURL = audioOutputURL
-        exportSession.outputFileType = .m4a
-        
         // Export only audio
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let exportAsset: AVAsset
+        
         if !audioTracks.isEmpty {
             let composition = AVMutableComposition()
             let audioCompositionTrack = composition.addMutableTrack(
@@ -148,13 +169,35 @@ class AudioProcessor {
                 at: .zero
             )
             
-            exportSession.assetForExport = composition
+            exportAsset = composition
+        } else {
+            exportAsset = asset
         }
+        
+        // Create export session with the final asset
+        guard let exportSession = AVAssetExportSession(
+            asset: exportAsset,
+            presetName: AVAssetExportPresetAppleM4A
+        ) else {
+            throw AudioProcessingError.exportSessionCreationFailed
+        }
+        
+        exportSession.outputURL = audioOutputURL
+        exportSession.outputFileType = .m4a
         
         await exportSession.export()
         
         if let error = exportSession.error {
+            print("❌ Audio extraction failed: \(error)")
             throw AudioProcessingError.audioExtractionFailed(error)
+        }
+        
+        // Verify the extracted file exists
+        let fileExists = FileManager.default.fileExists(atPath: audioOutputURL.path)
+        print("✅ Audio extraction completed. File exists: \(fileExists)")
+        if fileExists {
+            let fileSize = try? FileManager.default.attributesOfItem(atPath: audioOutputURL.path)[.size] as? Int64
+            print("📊 Extracted audio file size: \(fileSize?.description ?? "unknown")")
         }
         
         return audioOutputURL
@@ -272,11 +315,29 @@ class AudioProcessor {
         outputURL: URL
     ) async throws -> URL {
         
+        print("🎬 Starting muxing process...")
+        print("📹 Video URL: \(videoURL)")
+        print("🔊 Audio URL: \(audioURL)")
+        print("📁 Output URL: \(outputURL)")
+        
+        // Verify input files exist
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            print("❌ Video file does not exist: \(videoURL.path)")
+            throw AudioProcessingError.videoFileNotFound
+        }
+        
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            print("❌ Audio file does not exist: \(audioURL.path)")
+            throw AudioProcessingError.audioFileNotFound
+        }
+        
         // Remove existing output file
         try? FileManager.default.removeItem(at: outputURL)
         
         let videoAsset = AVURLAsset(url: videoURL)
         let audioAsset = AVURLAsset(url: audioURL)
+        
+        print("🔍 Loading video and audio assets...")
         
         // Create composition
         let composition = AVMutableComposition()
@@ -388,7 +449,11 @@ class AudioProcessor {
             return nil
         }
         
-        return CMAudioFormatDescriptionGetChannelLayout(formatDescription, sizeOut: nil)
+        guard let channelLayoutPtr = CMAudioFormatDescriptionGetChannelLayout(formatDescription, sizeOut: nil) else {
+            return nil
+        }
+        
+        return channelLayoutPtr.pointee
     }
     
     private func createAPACSettings(
@@ -411,6 +476,100 @@ class AudioProcessor {
         }
         
         return settings
+    }
+    
+    private func exportVideoWithStereoAudio(
+        videoURL: URL,
+        sourceVideoURL: URL,
+        outputURL: URL,
+        progressCallback: @escaping (Double) -> Void,
+        statusCallback: @escaping (AudioProcessingStatus) -> Void
+    ) async throws -> URL {
+        
+        print("🎬 Exporting APMP video with original stereo audio...")
+        print("📹 APMP Video: \(videoURL)")
+        print("🎵 Source Audio: \(sourceVideoURL)")
+        print("📁 Output: \(outputURL)")
+        
+        // Remove existing output file
+        try? FileManager.default.removeItem(at: outputURL)
+        
+        // Load assets
+        let videoAsset = AVURLAsset(url: videoURL)
+        let sourceAsset = AVURLAsset(url: sourceVideoURL)
+        
+        // Create composition
+        let composition = AVMutableComposition()
+        
+        statusCallback(.extracting)
+        progressCallback(0.2)
+        
+        // Add video track from APMP file
+        let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
+        guard let videoTrack = videoTracks.first else {
+            throw AudioProcessingError.noVideoTrackFound
+        }
+        
+        let videoCompositionTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        )
+        
+        let videoDuration = try await videoAsset.load(.duration)
+        try videoCompositionTrack?.insertTimeRange(
+            CMTimeRange(start: .zero, duration: videoDuration),
+            of: videoTrack,
+            at: .zero
+        )
+        
+        statusCallback(.muxing)
+        progressCallback(0.5)
+        
+        // Add audio track from original source
+        let audioTracks = try await sourceAsset.loadTracks(withMediaType: .audio)
+        guard let audioTrack = audioTracks.first else {
+            throw AudioProcessingError.noAudioTrackFound
+        }
+        
+        let audioCompositionTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        )
+        
+        let audioDuration = try await sourceAsset.load(.duration)
+        let actualDuration = min(videoDuration, audioDuration)
+        
+        try audioCompositionTrack?.insertTimeRange(
+            CMTimeRange(start: .zero, duration: actualDuration),
+            of: audioTrack,
+            at: .zero
+        )
+        
+        progressCallback(0.7)
+        
+        // Export the composition
+        guard let exportSession = AVAssetExportSession(
+            asset: composition,
+            presetName: AVAssetExportPresetHighestQuality
+        ) else {
+            throw AudioProcessingError.exportSessionCreationFailed
+        }
+        
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mov
+        
+        await exportSession.export()
+        
+        if let error = exportSession.error {
+            print("❌ Stereo audio export failed: \(error)")
+            throw AudioProcessingError.muxingFailed(error)
+        }
+        
+        statusCallback(.completed)
+        progressCallback(1.0)
+        
+        print("✅ Stereo audio export completed successfully")
+        return outputURL
     }
 }
 
@@ -436,6 +595,8 @@ enum AudioProcessingError: Error, LocalizedError {
     case encodingStartFailed
     case cannotAddWriterInput
     case cannotAddReaderOutput
+    case videoFileNotFound
+    case audioFileNotFound
     
     var errorDescription: String? {
         switch self {
@@ -463,6 +624,10 @@ enum AudioProcessingError: Error, LocalizedError {
             return "Cannot add writer input"
         case .cannotAddReaderOutput:
             return "Cannot add reader output"
+        case .videoFileNotFound:
+            return "Video file not found"
+        case .audioFileNotFound:
+            return "Audio file not found"
         }
     }
 }

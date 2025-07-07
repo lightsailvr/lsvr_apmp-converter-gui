@@ -16,7 +16,7 @@
 		A3456789012345678901ABCD /* ConversionTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3456789012345678901ABCE /* ConversionTypes.swift */; };
 		A4567890123456789012ABCD /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4567890123456789012ABCE /* ConversionManager.swift */; };
 		A5678901234567890123ABCD /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5678901234567890123ABCE /* FileDropView.swift */; };
-		A6789012345678901234ABCD /* ConversionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6789012345678901234ABCE /* ConversionQueueView.swift */;
+		A6789012345678901234ABCD /* ConversionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6789012345678901234ABCE /* ConversionQueueView.swift */; };
 		A7890123456789012345ABCD /* AudioProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7890123456789012345ABCE /* AudioProcessor.swift */; };
 /* End PBXBuildFile section */
 
