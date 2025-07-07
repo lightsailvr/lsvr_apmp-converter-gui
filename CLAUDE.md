@@ -105,55 +105,73 @@ When extending this project with UI components or additional features:
 - **APIs**: Use the most modern macOS APIs. Since there is no backward compatibility constraint, this app can target the latest macOS version with the newest APIs
 - **Swift Language**: Use the most modern Swift language features and conventions. Target Swift 6 and use Swift concurrency (async/await, actors) and Swift macros where applicable
 
-## Known Issues & Audio Integration Status
+## Audio Processing Implementation
 
-### Audio Preservation Challenge
+### Audio Preservation Status: **COMPLETED ✅**
 
-**Issue**: The original Apple sample code only processes video tracks, stripping audio from source files during APMP conversion.
+The application now successfully preserves audio from source files during APMP conversion using an intelligent dual-pipeline approach.
 
-**Goal**: Preserve original audio in the converted APMP files to maintain complete immersive media experience.
+### Implementation Overview
 
-### Attempted Solutions
+The audio processing system automatically detects audio characteristics and selects the appropriate processing pipeline:
 
-#### Approach 1: Concurrent Audio/Video Processing (FAILED)
-- **Method**: Modified `APMPConverter` to handle both video and audio tracks simultaneously
-- **Implementation**: Added `AVAssetReaderTrackOutput` for audio, concurrent processing with video
-- **Failure**: Caused AudioQueue errors (`Error (-4) getting reporterIDs`), app freezing, and unplayable output files
-- **Root Cause**: Complex concurrency issues between video compression and audio processing
+#### Pipeline 1: Direct Export (Stereo Audio)
+- **Used for**: 2-channel stereo audio from source video
+- **Method**: Direct composition using `AVMutableComposition`
+- **Process**:
+  1. Creates composition combining APMP video track + original stereo audio track
+  2. Exports using `AVAssetExportSession` with highest quality preset
+  3. No re-encoding of audio - preserves original quality
+- **Benefits**: Fast, reliable, preserves audio quality, no temporary files
 
-#### Approach 2: Sequential Audio/Video Processing (FAILED) 
-- **Method**: Process video first, then audio, then combine in `AVAssetWriter`
-- **Implementation**: Modified processing order to eliminate race conditions
-- **Failure**: Still encountered AudioQueue issues and freezing during finalization
-- **Root Cause**: `AVAssetWriter` complexity when handling both APMP video encoding and audio streams
+#### Pipeline 2: Extract-Encode-Mux (Ambisonic Audio)
+- **Used for**: 4, 9, or 16-channel ambisonic audio (external or source)
+- **Method**: Advanced APAC encoding pipeline
+- **Process**:
+  1. Extract audio to temporary M4A file
+  2. Encode to APAC (Apple Projected Audio Codec) format
+  3. Mux APAC audio with APMP video using `AVMutableComposition`
+- **Benefits**: Supports spatial audio standards, maintains ambisonic metadata
 
-#### Approach 3: Extract-Convert-Recombine Workflow (IN PROGRESS)
-- **Method**: 
-  1. Extract audio to temporary M4A file using `AVAssetExportSession`
-  2. Convert video-only to APMP format (original workflow)
-  3. Recombine APMP video + audio using `AVMutableComposition`
-- **Status**: Implementation complete but still experiencing issues
-- **Current Blockers**: 
-  - Audio extraction working
-  - Video conversion working
-  - Recombination step needs debugging
+### Key Features
 
-### Recommendations for Future Work
+- **Automatic Detection**: Analyzes source audio and selects optimal processing path
+- **File Conflict Prevention**: Intelligent output naming prevents overwriting input files
+- **Comprehensive Error Handling**: Detailed error reporting and debugging capabilities
+- **Progress Tracking**: Real-time progress updates for both video and audio processing
+- **Quality Preservation**: No unnecessary re-encoding for stereo content
 
-1. **Debug Recombination**: Focus on the `AVMutableComposition` step - verify track insertion and export session configuration
-2. **Alternative Tools**: Consider using `ffmpeg` via process execution for audio handling
-3. **Metadata Preservation**: Ensure APMP-specific metadata survives the recombination process
-4. **Simpler Approach**: Create video-only APMP files and provide separate audio workflow
-5. **Testing**: Use shorter test videos to isolate issues faster
+### Audio Configuration Options
 
-### Current Workaround
+The GUI provides controls for:
+- **External Audio Files**: Import separate ambisonic audio files
+- **Ambisonic Order Override**: Manual specification of spatial audio order (1st, 2nd, 3rd)
+- **Automatic Detection**: System detects audio characteristics from source files
+- **Quality Settings**: Maintains highest quality for all audio types
 
-The application currently processes video-only and produces working APMP files without audio. This is functional for testing the UI and video conversion pipeline, but audio preservation remains an open issue.
+### Technical Implementation
+
+**Key Files:**
+- `AudioProcessor.swift`: Main audio processing logic with dual pipelines
+- `ConversionTypes.swift`: Audio configuration data structures
+- `ConversionManager.swift`: Orchestrates video/audio processing coordination
+
+**Modern API Usage:**
+- Latest AVFoundation async/await patterns
+- Swift 6.0 concurrency with `@Sendable` closures
+- macOS 26.0 beta SDK compatibility
 
 ## Testing
 
-No explicit test framework is configured. Test conversions using:
-- The included sample video
-- Different projection types and view packing configurations
-- Various command-line argument combinations
-- **Note**: Audio testing requires videos with audio tracks to verify preservation attempts
+Test conversions using various content types:
+- **Stereo Video**: Standard 2-channel audio videos to test direct export pipeline
+- **Ambisonic Content**: 4, 9, or 16-channel spatial audio files to test APAC encoding
+- **Different Projections**: Equirectangular and half-equirectangular formats
+- **Various Formats**: Different input video codecs and containers
+- **External Audio**: Separate ambisonic audio files with video conversion
+
+**Audio Testing Notes:**
+- Stereo audio preserves original quality without re-encoding
+- Ambisonic audio gets converted to APAC format for Apple spatial audio compliance
+- Progress tracking shows separate video and audio processing phases
+- Error handling provides detailed diagnostics for audio processing issues
