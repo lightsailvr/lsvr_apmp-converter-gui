@@ -15,6 +15,7 @@ struct ConversionQueueView: View {
     let baselineInMillimeters: Double
     let horizontalFOV: Double
     let outputDirectory: URL?
+    let audioConfiguration: AudioConfiguration
     
     var body: some View {
         VStack(spacing: 0) {
@@ -42,7 +43,8 @@ struct ConversionQueueView: View {
                                 stereoscopicMode: stereoscopicMode,
                                 baselineInMillimeters: baselineInMillimeters,
                                 horizontalFOV: horizontalFOV,
-                                outputDirectory: outputDirectory
+                                outputDirectory: outputDirectory,
+                                audioConfiguration: audioConfiguration
                             )
                         }
                     }) {
@@ -147,6 +149,12 @@ struct ConversionItemView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
+                    if item.hasAudioConfiguration {
+                        Text("• \(item.audioStatusDescription)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
                     if item.status == .processing && item.totalBytes > 0 {
                         Text("\(item.bytesProcessedFormatted) / \(item.fileSizeFormatted)")
                             .font(.caption)
@@ -172,6 +180,20 @@ struct ConversionItemView: View {
                         ProgressView(value: min(item.progress, 1.0))
                             .progressViewStyle(LinearProgressViewStyle())
                             .frame(maxWidth: 300)
+                        
+                        if item.audioStatus != .pending {
+                            HStack(spacing: 8) {
+                                Text("Audio: \(item.audioStatus.displayName)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                
+                                if item.audioProgress > 0 {
+                                    ProgressView(value: min(item.audioProgress, 1.0))
+                                        .progressViewStyle(LinearProgressViewStyle())
+                                        .frame(maxWidth: 100)
+                                }
+                            }
+                        }
                         
                         if item.progress > 0 {
                             Text("\(Int(min(item.progress, 1.0) * 100))% complete")
@@ -246,6 +268,7 @@ struct ConversionItemView: View {
         stereoscopicMode: .auto,
         baselineInMillimeters: 64.0,
         horizontalFOV: 180.0,
-        outputDirectory: nil
+        outputDirectory: nil,
+        audioConfiguration: AudioConfiguration()
     )
 }

@@ -16,7 +16,8 @@
 		A3456789012345678901ABCD /* ConversionTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3456789012345678901ABCE /* ConversionTypes.swift */; };
 		A4567890123456789012ABCD /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4567890123456789012ABCE /* ConversionManager.swift */; };
 		A5678901234567890123ABCD /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5678901234567890123ABCE /* FileDropView.swift */; };
-		A6789012345678901234ABCD /* ConversionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6789012345678901234ABCE /* ConversionQueueView.swift */; };
+		A6789012345678901234ABCD /* ConversionQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6789012345678901234ABCE /* ConversionQueueView.swift */;
+		A7890123456789012345ABCD /* AudioProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7890123456789012345ABCE /* AudioProcessor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,7 @@
 		A4567890123456789012ABCE /* ConversionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionManager.swift; sourceTree = "<group>"; };
 		A5678901234567890123ABCE /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
 		A6789012345678901234ABCE /* ConversionQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionQueueView.swift; sourceTree = "<group>"; };
+		A7890123456789012345ABCE /* AudioProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessor.swift; sourceTree = "<group>"; };
 		EA846D03CFB05E920F8D069E /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -93,6 +95,7 @@
 				A4567890123456789012ABCE /* ConversionManager.swift */,
 				A5678901234567890123ABCE /* FileDropView.swift */,
 				A6789012345678901234ABCE /* ConversionQueueView.swift */,
+				A7890123456789012345ABCE /* AudioProcessor.swift */,
 				59CEDD7B2AABEAB100EEF615 /* ProjectedMediaConversionCLI.swift */,
 				59E917182AB3B54D00B5FE38 /* Converter.swift */,
 				72B814AA2DD0072D00DCCF72 /* ProjectedMediaClassifier.swift */,
@@ -178,6 +181,7 @@
 				A4567890123456789012ABCD /* ConversionManager.swift in Sources */,
 				A5678901234567890123ABCD /* FileDropView.swift in Sources */,
 				A6789012345678901234ABCD /* ConversionQueueView.swift in Sources */,
+				A7890123456789012345ABCD /* AudioProcessor.swift in Sources */,
 				59E917192AB3B54D00B5FE38 /* Converter.swift in Sources */,
 				72B814AB2DD0073A00DCCF72 /* ProjectedMediaClassifier.swift in Sources */,
 				59CEDD7C2AABEAB100EEF615 /* ProjectedMediaConversionCLI.swift in Sources */,

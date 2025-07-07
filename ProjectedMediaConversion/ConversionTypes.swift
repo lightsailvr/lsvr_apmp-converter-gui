@@ -6,6 +6,79 @@ Types and enums for the Projected Media Conversion application.
 */
 
 import Foundation
+import AVFoundation
+
+enum AmbisonicOrder: String, CaseIterable {
+    case first = "1st"
+    case second = "2nd" 
+    case third = "3rd"
+    
+    var displayName: String {
+        switch self {
+        case .first:
+            return "1st Order (4 channels)"
+        case .second:
+            return "2nd Order (9 channels)"
+        case .third:
+            return "3rd Order (16 channels)"
+        }
+    }
+    
+    var channelCount: Int {
+        switch self {
+        case .first:
+            return 4
+        case .second:
+            return 9
+        case .third:
+            return 16
+        }
+    }
+}
+
+struct AudioConfiguration {
+    var externalAudioURL: URL?
+    var detectedOrder: AmbisonicOrder?
+    var overrideOrder: AmbisonicOrder?
+    var shouldOverrideExisting: Bool = true
+    
+    var effectiveOrder: AmbisonicOrder? {
+        return overrideOrder ?? detectedOrder
+    }
+    
+    var hasExternalAudio: Bool {
+        return externalAudioURL != nil
+    }
+}
+
+enum AudioProcessingStatus {
+    case pending
+    case analyzing
+    case extracting
+    case encoding
+    case muxing
+    case completed
+    case failed
+    
+    var displayName: String {
+        switch self {
+        case .pending:
+            return "Pending"
+        case .analyzing:
+            return "Analyzing Audio"
+        case .extracting:
+            return "Extracting Audio"
+        case .encoding:
+            return "Encoding APAC"
+        case .muxing:
+            return "Muxing Audio"
+        case .completed:
+            return "Audio Complete"
+        case .failed:
+            return "Audio Failed"
+        }
+    }
+}
 
 enum ProjectionFormat: String, CaseIterable {
     case auto = "auto"
@@ -78,6 +151,14 @@ struct ConversionItem: Identifiable {
     var estimatedTimeRemaining: TimeInterval = 0
     var startTime: Date?
     
+    // Audio processing properties
+    var audioConfiguration: AudioConfiguration = AudioConfiguration()
+    var audioStatus: AudioProcessingStatus = .pending
+    var audioProgress: Double = 0.0
+    var videoProgress: Double = 0.0
+    var detectedAudioChannels: Int = 0
+    var audioProcessingError: Error?
+    
     var filename: String {
         sourceURL.lastPathComponent
     }
@@ -96,6 +177,20 @@ struct ConversionItem: Identifiable {
         formatter.allowedUnits = [.minute, .second]
         formatter.unitsStyle = .abbreviated
         return formatter.string(from: estimatedTimeRemaining) ?? ""
+    }
+    
+    var hasAudioConfiguration: Bool {
+        return audioConfiguration.hasExternalAudio || detectedAudioChannels > 0
+    }
+    
+    var audioStatusDescription: String {
+        if audioConfiguration.hasExternalAudio {
+            return "External: \(audioConfiguration.effectiveOrder?.displayName ?? "Unknown")"
+        } else if detectedAudioChannels > 0 {
+            return "Source: \(detectedAudioChannels) channels"
+        } else {
+            return "No audio"
+        }
     }
 }
 

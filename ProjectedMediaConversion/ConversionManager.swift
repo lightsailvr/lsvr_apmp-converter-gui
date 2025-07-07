@@ -53,7 +53,8 @@ class ConversionManager: ObservableObject {
         stereoscopicMode: StereoscopicMode,
         baselineInMillimeters: Double,
         horizontalFOV: Double,
-        outputDirectory: URL?
+        outputDirectory: URL?,
+        audioConfiguration: AudioConfiguration
     ) {
         guard !isProcessing else { return }
         
@@ -65,7 +66,8 @@ class ConversionManager: ObservableObject {
                 stereoscopicMode: stereoscopicMode,
                 baselineInMillimeters: baselineInMillimeters,
                 horizontalFOV: horizontalFOV,
-                outputDirectory: outputDirectory
+                outputDirectory: outputDirectory,
+                audioConfiguration: audioConfiguration
             )
         }
     }
@@ -88,7 +90,8 @@ class ConversionManager: ObservableObject {
         stereoscopicMode: StereoscopicMode,
         baselineInMillimeters: Double,
         horizontalFOV: Double,
-        outputDirectory: URL?
+        outputDirectory: URL?,
+        audioConfiguration: AudioConfiguration
     ) async {
         defer {
             Task { @MainActor in
@@ -105,6 +108,14 @@ class ConversionManager: ObservableObject {
             await updateItemStatus(at: index, status: .processing)
             await updateItemStartTime(at: index, startTime: Date())
             
+            // Set up audio configuration for this item
+            var itemAudioConfig = audioConfiguration
+            if let externalAudioURL = audioConfiguration.externalAudioURL {
+                itemAudioConfig.externalAudioURL = externalAudioURL
+            }
+            
+            await updateItemAudioConfiguration(at: index, audioConfiguration: itemAudioConfig)
+            
             do {
                 let outputURL = try await convertFile(
                     item: item,
@@ -113,7 +124,8 @@ class ConversionManager: ObservableObject {
                     stereoscopicMode: stereoscopicMode,
                     baselineInMillimeters: baselineInMillimeters,
                     horizontalFOV: horizontalFOV,
-                    outputDirectory: outputDirectory
+                    outputDirectory: outputDirectory,
+                    audioConfiguration: itemAudioConfig
                 )
                 
                 await updateItemOutput(at: index, outputURL: outputURL, status: .completed)
@@ -131,7 +143,8 @@ class ConversionManager: ObservableObject {
         stereoscopicMode: StereoscopicMode,
         baselineInMillimeters: Double,
         horizontalFOV: Double,
-        outputDirectory: URL?
+        outputDirectory: URL?,
+        audioConfiguration: AudioConfiguration
     ) async throws -> URL {
         let inputURL = item.sourceURL
         
@@ -184,7 +197,7 @@ class ConversionManager: ObservableObject {
             let bytesProcessed = Int64(Double(item.totalBytes) * progress)
             
             Task { @MainActor in
-                await self.updateItemProgress(
+                await self.updateItemVideoProgress(
                     at: index,
                     progress: progress,
                     bytesProcessed: bytesProcessed,
@@ -195,6 +208,33 @@ class ConversionManager: ObservableObject {
         
         let conversionTime = Date().timeIntervalSince(conversionStartTime)
         print("✅ APMP conversion completed in \(String(format: "%.2f", conversionTime)) seconds")
+        
+        // Now handle audio processing if needed
+        if audioConfiguration.hasExternalAudio || await hasSourceAudio(inputURL) {
+            print("🔊 Starting audio processing...")
+            let audioProcessor = AudioProcessor()
+            let finalOutputURL = try await audioProcessor.processAudio(
+                videoURL: outputURL,
+                sourceVideoURL: inputURL,
+                audioConfiguration: audioConfiguration,
+                progressCallback: { audioProgress in
+                    Task { @MainActor in
+                        await self.updateItemAudioProgress(at: index, audioProgress: audioProgress)
+                    }
+                },
+                statusCallback: { status in
+                    Task { @MainActor in
+                        await self.updateItemAudioStatus(at: index, audioStatus: status)
+                    }
+                }
+            )
+            
+            // Replace the video-only output with the final output
+            if finalOutputURL != outputURL {
+                try? FileManager.default.removeItem(at: outputURL)
+                return finalOutputURL
+            }
+        }
         
         // Ensure progress shows 100%
         await updateItemProgress(
@@ -248,6 +288,53 @@ class ConversionManager: ObservableObject {
                 self.queuedFiles[index].bytesProcessed = bytesProcessed
                 self.queuedFiles[index].estimatedTimeRemaining = estimatedTimeRemaining
             }
+        }
+    }
+    
+    private func updateItemVideoProgress(at index: Int, progress: Double, bytesProcessed: Int64, estimatedTimeRemaining: TimeInterval) async {
+        Task { @MainActor in
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].videoProgress = progress
+                self.queuedFiles[index].progress = progress * 0.7  // Video takes 70% of overall progress
+                self.queuedFiles[index].bytesProcessed = bytesProcessed
+                self.queuedFiles[index].estimatedTimeRemaining = estimatedTimeRemaining
+            }
+        }
+    }
+    
+    private func updateItemAudioProgress(at index: Int, audioProgress: Double) async {
+        Task { @MainActor in
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].audioProgress = audioProgress
+                // Audio takes 30% of overall progress, offset by video progress
+                self.queuedFiles[index].progress = self.queuedFiles[index].videoProgress * 0.7 + audioProgress * 0.3
+            }
+        }
+    }
+    
+    private func updateItemAudioStatus(at index: Int, audioStatus: AudioProcessingStatus) async {
+        Task { @MainActor in
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].audioStatus = audioStatus
+            }
+        }
+    }
+    
+    private func updateItemAudioConfiguration(at index: Int, audioConfiguration: AudioConfiguration) async {
+        Task { @MainActor in
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].audioConfiguration = audioConfiguration
+            }
+        }
+    }
+    
+    private func hasSourceAudio(_ url: URL) async -> Bool {
+        do {
+            let asset = AVURLAsset(url: url)
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            return !audioTracks.isEmpty
+        } catch {
+            return false
         }
     }
 }
