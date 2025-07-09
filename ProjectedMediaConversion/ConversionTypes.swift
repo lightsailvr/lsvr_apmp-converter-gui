@@ -159,6 +159,10 @@ struct ConversionItem: Identifiable {
     var detectedAudioChannels: Int = 0
     var audioProcessingError: Error?
     
+    // Video specifications
+    var inputVideoSpecs: VideoSpecifications?
+    var outputVideoSpecs: VideoSpecifications?
+    
     var filename: String {
         sourceURL.lastPathComponent
     }
@@ -245,3 +249,66 @@ struct ConversionError: Error, CustomStringConvertible {
         self.description = description
     }
 }
+
+// MARK: - Video Specifications
+
+struct VideoSpecifications {
+    let codec: String
+    let resolution: CGSize
+    let frameRate: Double
+    let bitrate: Int64?
+    let colorPrimaries: String?
+    let transferFunction: String?
+    let colorMatrix: String?
+    let pixelFormat: String?
+    
+    var isHDR: Bool {
+        return transferFunction?.contains("2084") == true || 
+               transferFunction?.contains("PQ") == true ||
+               transferFunction?.contains("ST2084") == true
+    }
+    
+    var colorSpaceDescription: String {
+        if isHDR {
+            return "HDR (ST2084/PQ)"
+        } else if colorPrimaries?.contains("709") == true {
+            return "SDR (Rec.709)"
+        } else if colorPrimaries?.contains("2020") == true {
+            return "Wide Gamut (Rec.2020)"
+        } else {
+            return colorPrimaries ?? "Unknown"
+        }
+    }
+    
+    var bitrateFormatted: String {
+        guard let bitrate = bitrate else { return "Unknown" }
+        let mbps = Double(bitrate) / 1_000_000
+        return String(format: "%.1f Mbps", mbps)
+    }
+    
+    var resolutionFormatted: String {
+        return "\(Int(resolution.width))×\(Int(resolution.height))"
+    }
+    
+    var frameRateFormatted: String {
+        return String(format: "%.2f fps", frameRate)
+    }
+}
+
+// MARK: - Quality Settings
+
+struct QualitySettings {
+    var bitrateMbps: Int = 75 // Default 75 Mbps for immersive content
+    var quality: Double = 0.9 // High quality (0.0-1.0)
+    
+    var bitrateFormatted: String {
+        return "\(bitrateMbps) Mbps"
+    }
+    
+    var bitrateBps: Int {
+        return bitrateMbps * 1_000_000
+    }
+    
+    static let bitrateRange = 50...120 // Mbps range for immersive content
+}
+

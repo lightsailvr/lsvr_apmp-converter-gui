@@ -34,6 +34,14 @@ class ConversionManager: ObservableObject {
             return item
         }
         queuedFiles.append(contentsOf: newItems)
+        
+        // Analyze video specifications for new items
+        let startIndex = queuedFiles.count - newItems.count
+        for i in 0..<newItems.count {
+            Task {
+                await analyzeVideoSpecs(at: startIndex + i)
+            }
+        }
     }
     
     func removeFile(at index: Int) {
@@ -55,7 +63,8 @@ class ConversionManager: ObservableObject {
         baselineInMillimeters: Double,
         horizontalFOV: Double,
         outputDirectory: URL?,
-        audioConfiguration: AudioConfiguration
+        audioConfiguration: AudioConfiguration,
+        qualitySettings: QualitySettings
     ) {
         guard !isProcessing else { return }
         
@@ -68,7 +77,8 @@ class ConversionManager: ObservableObject {
                 baselineInMillimeters: baselineInMillimeters,
                 horizontalFOV: horizontalFOV,
                 outputDirectory: outputDirectory,
-                audioConfiguration: audioConfiguration
+                audioConfiguration: audioConfiguration,
+                qualitySettings: qualitySettings
             )
         }
     }
@@ -92,7 +102,8 @@ class ConversionManager: ObservableObject {
         baselineInMillimeters: Double,
         horizontalFOV: Double,
         outputDirectory: URL?,
-        audioConfiguration: AudioConfiguration
+        audioConfiguration: AudioConfiguration,
+        qualitySettings: QualitySettings
     ) async {
         defer {
             Task { @MainActor in
@@ -126,7 +137,8 @@ class ConversionManager: ObservableObject {
                     baselineInMillimeters: baselineInMillimeters,
                     horizontalFOV: horizontalFOV,
                     outputDirectory: outputDirectory,
-                    audioConfiguration: itemAudioConfig
+                    audioConfiguration: itemAudioConfig,
+                    qualitySettings: qualitySettings
                 )
                 
                 await updateItemOutput(at: index, outputURL: outputURL, status: .completed)
@@ -145,7 +157,8 @@ class ConversionManager: ObservableObject {
         baselineInMillimeters: Double,
         horizontalFOV: Double,
         outputDirectory: URL?,
-        audioConfiguration: AudioConfiguration
+        audioConfiguration: AudioConfiguration,
+        qualitySettings: QualitySettings
     ) async throws -> URL {
         let inputURL = item.sourceURL
         
@@ -192,7 +205,7 @@ class ConversionManager: ObservableObject {
         print("🎬 Starting APMP conversion...")
         let conversionStartTime = Date()
         
-        try await converter.convertToAPMP(output: outputURL, projectedMediaMetadata: projectedMediaMetadata) { @Sendable currentFrame, totalFrames, timeRemaining in
+        try await converter.convertToAPMP(output: outputURL, projectedMediaMetadata: projectedMediaMetadata, qualitySettings: qualitySettings) { @Sendable currentFrame, totalFrames, timeRemaining in
             // Update progress based on actual frame processing
             let progress = Double(currentFrame) / Double(totalFrames)
             let bytesProcessed = Int64(Double(item.totalBytes) * progress)
@@ -338,5 +351,263 @@ class ConversionManager: ObservableObject {
         } catch {
             return false
         }
+    }
+    
+    func analyzeVideoSpecs(at index: Int) async {
+        guard index < queuedFiles.count else { return }
+        
+        let url = queuedFiles[index].sourceURL
+        let specs = await extractVideoSpecifications(from: url)
+        
+        await MainActor.run {
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].inputVideoSpecs = specs
+            }
+        }
+    }
+    
+    private func extractVideoSpecifications(from url: URL) async -> VideoSpecifications? {
+        do {
+            let asset = AVURLAsset(url: url)
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            
+            guard let videoTrack = videoTracks.first else { return nil }
+            
+            // Get basic properties
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
+            let estimatedDataRate = try await videoTrack.load(.estimatedDataRate)
+            
+            // Get format descriptions for codec and color info
+            let formatDescriptions = try await videoTrack.load(.formatDescriptions)
+            guard let formatDescription = formatDescriptions.first else { return nil }
+            
+            // Extract codec information
+            let codecType = CMFormatDescriptionGetMediaSubType(formatDescription)
+            let codec = fourCCToString(codecType)
+            
+            // Extract color space information
+            let colorPrimaries = getColorPrimaries(from: formatDescription)
+            let transferFunction = getTransferFunction(from: formatDescription)
+            let colorMatrix = getColorMatrix(from: formatDescription)
+            let pixelFormat = getPixelFormat(from: formatDescription)
+            
+            return VideoSpecifications(
+                codec: codec,
+                resolution: naturalSize,
+                frameRate: Double(nominalFrameRate),
+                bitrate: Int64(estimatedDataRate),
+                colorPrimaries: colorPrimaries,
+                transferFunction: transferFunction,
+                colorMatrix: colorMatrix,
+                pixelFormat: pixelFormat
+            )
+        } catch {
+            print("❌ Error analyzing video specs: \(error)")
+            return nil
+        }
+    }
+    
+    private func fourCCToString(_ fourCC: FourCharCode) -> String {
+        let bytes = withUnsafeBytes(of: fourCC.bigEndian) { Array($0) }
+        return String(bytes: bytes, encoding: .ascii) ?? "Unknown"
+    }
+    
+    private func getColorPrimaries(from formatDescription: CMFormatDescription) -> String? {
+        guard let primaries = CMFormatDescriptionGetExtension(
+            formatDescription,
+            extensionKey: kCMFormatDescriptionExtension_ColorPrimaries
+        ) else { return nil }
+        
+        if CFEqual(primaries, kCMFormatDescriptionColorPrimaries_ITU_R_709_2) {
+            return "ITU-R BT.709"
+        } else if CFEqual(primaries, kCMFormatDescriptionColorPrimaries_ITU_R_2020) {
+            return "ITU-R BT.2020"
+        }
+        
+        return String(describing: primaries)
+    }
+    
+    private func getTransferFunction(from formatDescription: CMFormatDescription) -> String? {
+        guard let transfer = CMFormatDescriptionGetExtension(
+            formatDescription,
+            extensionKey: kCMFormatDescriptionExtension_TransferFunction
+        ) else { return nil }
+        
+        if CFEqual(transfer, kCMFormatDescriptionTransferFunction_ITU_R_709_2) {
+            return "ITU-R BT.709"
+        } else if CFEqual(transfer, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ) {
+            return "SMPTE ST 2084 (PQ)"
+        } else if CFEqual(transfer, kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG) {
+            return "ITU-R BT.2100 HLG"
+        }
+        
+        return String(describing: transfer)
+    }
+    
+    private func getColorMatrix(from formatDescription: CMFormatDescription) -> String? {
+        guard let matrix = CMFormatDescriptionGetExtension(
+            formatDescription,
+            extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix
+        ) else { return nil }
+        
+        if CFEqual(matrix, kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2) {
+            return "ITU-R BT.709"
+        } else if CFEqual(matrix, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020) {
+            return "ITU-R BT.2020"
+        }
+        
+        return String(describing: matrix)
+    }
+    
+    private func getPixelFormat(from formatDescription: CMFormatDescription) -> String? {
+        let pixelFormat = CMFormatDescriptionGetMediaSubType(formatDescription)
+        return fourCCToString(pixelFormat)
+    }
+    
+    func predictOutputVideoSpecs(
+        at index: Int,
+        projectionFormat: ProjectionFormat,
+        stereoscopicMode: StereoscopicMode,
+        qualitySettings: QualitySettings
+    ) async {
+        guard index < queuedFiles.count else { return }
+        
+        let item = queuedFiles[index]
+        guard let inputSpecs = item.inputVideoSpecs else { return }
+        
+        let predictedSpecs = await generatePredictedSpecs(
+            inputSpecs: inputSpecs,
+            projectionFormat: projectionFormat,
+            stereoscopicMode: stereoscopicMode,
+            qualitySettings: qualitySettings
+        )
+        
+        await MainActor.run {
+            if index < self.queuedFiles.count {
+                self.queuedFiles[index].outputVideoSpecs = predictedSpecs
+            }
+        }
+    }
+    
+    func predictAllOutputSpecs(
+        projectionFormat: ProjectionFormat,
+        stereoscopicMode: StereoscopicMode,
+        qualitySettings: QualitySettings
+    ) async {
+        for index in 0..<queuedFiles.count {
+            await predictOutputVideoSpecs(
+                at: index,
+                projectionFormat: projectionFormat,
+                stereoscopicMode: stereoscopicMode,
+                qualitySettings: qualitySettings
+            )
+        }
+    }
+    
+    private func generatePredictedSpecs(
+        inputSpecs: VideoSpecifications,
+        projectionFormat: ProjectionFormat,
+        stereoscopicMode: StereoscopicMode,
+        qualitySettings: QualitySettings
+    ) async -> VideoSpecifications {
+        
+        // Determine output codec
+        let outputCodec = (stereoscopicMode == .sideBySide || stereoscopicMode == .topBottom) ? "hvc1" : "hvc1"
+        // Note: Both use HEVC, but stereo content gets encoded as MV-HEVC internally
+        
+        // Calculate output resolution
+        let outputResolution = calculateOutputResolution(
+            inputResolution: inputSpecs.resolution,
+            projectionFormat: projectionFormat,
+            stereoscopicMode: stereoscopicMode
+        )
+        
+        // Preserve frame rate
+        let outputFrameRate = inputSpecs.frameRate
+        
+        // Use user-selected bitrate
+        let outputBitrate = Int64(qualitySettings.bitrateBps)
+        
+        // Determine if HDR will be preserved
+        let willPreserveHDR = inputSpecs.isHDR
+        let outputColorPrimaries = willPreserveHDR ? inputSpecs.colorPrimaries : "ITU-R BT.709"
+        let outputTransferFunction = willPreserveHDR ? inputSpecs.transferFunction : "ITU-R BT.709"
+        let outputColorMatrix = willPreserveHDR ? inputSpecs.colorMatrix : "ITU-R BT.709"
+        
+        print("🔮 Predicted output specs: \(outputCodec) • \(Int(outputResolution.width))×\(Int(outputResolution.height)) • \(outputFrameRate) fps • \(qualitySettings.bitrateFormatted)")
+        
+        return VideoSpecifications(
+            codec: outputCodec,
+            resolution: outputResolution,
+            frameRate: outputFrameRate,
+            bitrate: outputBitrate,
+            colorPrimaries: outputColorPrimaries,
+            transferFunction: outputTransferFunction,
+            colorMatrix: outputColorMatrix,
+            pixelFormat: "420v" // HEVC 4:2:0
+        )
+    }
+    
+    private func calculateOutputResolution(
+        inputResolution: CGSize,
+        projectionFormat: ProjectionFormat,
+        stereoscopicMode: StereoscopicMode
+    ) -> CGSize {
+        
+        var outputResolution = inputResolution
+        
+        // Handle stereoscopic unpacking
+        switch stereoscopicMode {
+        case .sideBySide:
+            // Side-by-side gets unpacked to individual eye frames
+            outputResolution.width = inputResolution.width / 2
+        case .topBottom:
+            // Top-bottom gets unpacked to individual eye frames
+            outputResolution.height = inputResolution.height / 2
+        case .mono, .auto:
+            // No change for monoscopic
+            break
+        }
+        
+        // APMP conversion typically maintains resolution
+        // but we could add logic here for any specific APMP requirements
+        
+        return outputResolution
+    }
+    
+    // MARK: - Validation
+    
+    func validateSettings(
+        projectionFormat: ProjectionFormat,
+        stereoscopicMode: StereoscopicMode,
+        qualitySettings: QualitySettings
+    ) -> [String] {
+        var warnings: [String] = []
+        
+        // Check bitrate recommendations
+        if qualitySettings.bitrateMbps < 60 {
+            warnings.append("Bitrate below 60 Mbps may result in quality loss for immersive content")
+        }
+        
+        // Check for auto-detection with insufficient info
+        if projectionFormat == .auto && stereoscopicMode == .auto {
+            warnings.append("Both projection and stereoscopic mode are set to auto-detect - ensure source metadata is accurate")
+        }
+        
+        // Check for potential resolution issues
+        for item in queuedFiles {
+            if let inputSpecs = item.inputVideoSpecs {
+                if inputSpecs.resolution.width < 1920 {
+                    warnings.append("Input resolution \(inputSpecs.resolutionFormatted) is below recommended minimum for immersive content")
+                }
+                
+                if inputSpecs.frameRate < 24 {
+                    warnings.append("Input frame rate \(inputSpecs.frameRateFormatted) is below recommended minimum")
+                }
+            }
+        }
+        
+        return warnings
     }
 }

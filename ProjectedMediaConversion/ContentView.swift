@@ -27,6 +27,9 @@ struct ContentView: View {
     @State private var overrideAudioOrder = false
     @State private var showingAudioFileImporter = false
     
+    // Quality settings state
+    @State private var qualitySettings = QualitySettings()
+    
     var body: some View {
         NavigationSplitView {
             // Sidebar with settings
@@ -197,6 +200,51 @@ struct ContentView: View {
                 
                 Divider()
                 
+                // Quality Settings Section
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "dial.high")
+                            .foregroundColor(.secondary)
+                            .frame(width: 16)
+                        Text("Quality Settings")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Bitrate:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 60, alignment: .leading)
+                            
+                            Slider(
+                                value: Binding(
+                                    get: { Double(qualitySettings.bitrateMbps) },
+                                    set: { qualitySettings.bitrateMbps = Int($0) }
+                                ),
+                                in: Double(QualitySettings.bitrateRange.lowerBound)...Double(QualitySettings.bitrateRange.upperBound),
+                                step: 5
+                            )
+                            
+                            Text(qualitySettings.bitrateFormatted)
+                                .font(.caption)
+                                .foregroundColor(.primary)
+                                .frame(width: 60, alignment: .trailing)
+                        }
+                        
+                        Text("Higher bitrates provide better quality for immersive content")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+                
+                Divider()
+                
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Image(systemName: "folder")
@@ -251,7 +299,8 @@ struct ContentView: View {
                             externalAudioURL: externalAudioURL,
                             detectedOrder: nil,
                             overrideOrder: overrideAudioOrder ? selectedAmbisonicOrder : nil
-                        )
+                        ),
+                        qualitySettings: qualitySettings
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -294,6 +343,28 @@ struct ContentView: View {
             case .failure(let error):
                 print("Audio file import failed: \(error.localizedDescription)")
             }
+        }
+        .onChange(of: selectedProjection) { _, _ in
+            updatePredictedSpecs()
+        }
+        .onChange(of: selectedStereoscopicMode) { _, _ in
+            updatePredictedSpecs()
+        }
+        .onChange(of: qualitySettings.bitrateMbps) { _, _ in
+            updatePredictedSpecs()
+        }
+        .onChange(of: conversionManager.queuedFiles.count) { _, _ in
+            updatePredictedSpecs()
+        }
+    }
+    
+    private func updatePredictedSpecs() {
+        Task {
+            await conversionManager.predictAllOutputSpecs(
+                projectionFormat: selectedProjection,
+                stereoscopicMode: selectedStereoscopicMode,
+                qualitySettings: qualitySettings
+            )
         }
     }
     

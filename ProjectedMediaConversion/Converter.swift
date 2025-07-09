@@ -72,7 +72,7 @@ final class APMPConverter: Sendable {
 	/// - Parameter projectedMediaMetadata: APMP metadata to add to the output file.
 	/// - Parameter progressCallback: Optional callback for progress updates (currentFrame, totalFrames, timeRemaining)
 	/// - Tag: TranscodeVideo
-	func convertToAPMP(output videoOutputURL: URL, projectedMediaMetadata: ProjectedMediaMetadata, progressCallback: (@Sendable (Int, Int, TimeInterval) -> Void)? = nil) async throws {
+	func convertToAPMP(output videoOutputURL: URL, projectedMediaMetadata: ProjectedMediaMetadata, qualitySettings: QualitySettings = QualitySettings(), progressCallback: (@Sendable (Int, Int, TimeInterval) -> Void)? = nil) async throws {
 		print("🎬 Starting APMP conversion to: \(videoOutputURL.lastPathComponent)")
 		var verticalScale = 1.0
 		var horizontalScale = 1.0
@@ -118,6 +118,17 @@ final class APMPConverter: Sendable {
 			let encodedHorizontalFOV = UInt32(1000.0 * horizontalFOV)
 			compressionProperties[kVTCompressionPropertyKey_HorizontalFieldOfView] = encodedHorizontalFOV
 		}
+		
+		// Enhanced quality settings for better output
+		compressionProperties[kVTCompressionPropertyKey_Quality] = qualitySettings.quality
+		compressionProperties[kVTCompressionPropertyKey_AverageBitRate] = qualitySettings.bitrateBps
+		print("🎯 Using quality settings: \(qualitySettings.bitrateFormatted), quality: \(qualitySettings.quality)")
+		compressionProperties[kVTCompressionPropertyKey_MaxKeyFrameInterval] = 60 // Keyframe every 2 seconds at 30fps
+		compressionProperties[kVTCompressionPropertyKey_AllowFrameReordering] = true
+		compressionProperties[kVTCompressionPropertyKey_RealTime] = false // Prioritize quality over speed
+		
+		// Color space preservation - detect from source and preserve
+		await preserveColorSpace(in: &compressionProperties)
 		
 		let outputSettings: [String: Any] = [
 			AVVideoCodecKey: AVVideoCodecType.hevc,
@@ -286,6 +297,58 @@ final class APMPConverter: Sendable {
 		}
 		
 		return taggedBuffers
+	}
+	
+	/// Preserves color space information from source video in compression properties
+	private func preserveColorSpace(in compressionProperties: inout [CFString: Any]) async {
+		do {
+			// Get the source video track to extract color space information
+			let asset = reader.asset
+			let videoTracks = try await asset.loadTracks(withMediaType: .video)
+			guard let videoTrack = videoTracks.first else { return }
+			
+			let formatDescriptions = try await videoTrack.load(.formatDescriptions)
+			guard let formatDescription = formatDescriptions.first else { return }
+			
+			print("🎨 Analyzing source color space...")
+			
+			// Extract color primaries
+			if let colorPrimaries = CMFormatDescriptionGetExtension(
+				formatDescription,
+				extensionKey: kCMFormatDescriptionExtension_ColorPrimaries
+			) {
+				compressionProperties[kVTCompressionPropertyKey_ColorPrimaries] = colorPrimaries
+				print("🎨 Preserving color primaries: \(colorPrimaries)")
+			}
+			
+			// Extract transfer function (crucial for HDR)
+			if let transferFunction = CMFormatDescriptionGetExtension(
+				formatDescription,
+				extensionKey: kCMFormatDescriptionExtension_TransferFunction
+			) {
+				compressionProperties[kVTCompressionPropertyKey_TransferFunction] = transferFunction
+				print("🎨 Preserving transfer function: \(transferFunction)")
+				
+				// Check if this is HDR content
+				if CFEqual(transferFunction, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ) {
+					print("🌟 HDR PQ content detected - preserving ST2084 transfer function")
+					// Enable HDR encoding settings
+					compressionProperties[kVTCompressionPropertyKey_HDRMetadataInsertionMode] = kVTHDRMetadataInsertionMode_Auto
+				}
+			}
+			
+			// Extract color matrix
+			if let colorMatrix = CMFormatDescriptionGetExtension(
+				formatDescription,
+				extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix
+			) {
+				compressionProperties[kVTCompressionPropertyKey_YCbCrMatrix] = colorMatrix
+				print("🎨 Preserving color matrix: \(colorMatrix)")
+			}
+			
+		} catch {
+			print("⚠️ Warning: Could not extract color space information: \(error)")
+		}
 	}
 }
 

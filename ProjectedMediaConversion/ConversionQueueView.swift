@@ -16,6 +16,7 @@ struct ConversionQueueView: View {
     let horizontalFOV: Double
     let outputDirectory: URL?
     let audioConfiguration: AudioConfiguration
+    let qualitySettings: QualitySettings
     
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +45,8 @@ struct ConversionQueueView: View {
                                 baselineInMillimeters: baselineInMillimeters,
                                 horizontalFOV: horizontalFOV,
                                 outputDirectory: outputDirectory,
-                                audioConfiguration: audioConfiguration
+                                audioConfiguration: audioConfiguration,
+                                qualitySettings: qualitySettings
                             )
                         }
                     }) {
@@ -66,6 +68,43 @@ struct ConversionQueueView: View {
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()
+            
+            // Validation warnings
+            let warnings = conversionManager.validateSettings(
+                projectionFormat: projectionFormat,
+                stereoscopicMode: stereoscopicMode,
+                qualitySettings: qualitySettings
+            )
+            
+            if !warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text("Validation Warnings")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                    }
+                    
+                    ForEach(warnings, id: \.self) { warning in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 4))
+                                .foregroundColor(.orange)
+                                .padding(.top, 6)
+                            
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color.orange.opacity(0.1))
+                
+                Divider()
+            }
             
             // Queue list
             if conversionManager.queuedFiles.isEmpty {
@@ -143,6 +182,14 @@ struct ConversionItemView: View {
                 Text(item.filename)
                     .font(.headline)
                     .lineLimit(1)
+                
+                // Video specifications
+                if let inputSpecs = item.inputVideoSpecs {
+                    VideoSpecsView(
+                        inputSpecs: inputSpecs,
+                        outputSpecs: item.outputVideoSpecs
+                    )
+                }
                 
                 HStack(spacing: 16) {
                     Text(item.status.displayName)
@@ -261,6 +308,88 @@ struct ConversionItemView: View {
     }
 }
 
+struct VideoSpecsView: View {
+    let inputSpecs: VideoSpecifications
+    let outputSpecs: VideoSpecifications?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Input specifications
+            HStack(spacing: 12) {
+                Label("Input", systemImage: "video.fill")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                Text("\(inputSpecs.codec) • \(inputSpecs.resolutionFormatted) • \(inputSpecs.frameRateFormatted)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                if inputSpecs.isHDR {
+                    Text("HDR")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.orange.opacity(0.2))
+                        .foregroundColor(.orange)
+                        .cornerRadius(3)
+                }
+            }
+            
+            HStack(spacing: 12) {
+                Text("")
+                    .font(.caption2)
+                    .frame(width: 35) // Align with label above
+                
+                Text("\(inputSpecs.bitrateFormatted) • \(inputSpecs.colorSpaceDescription)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Output specifications (predicted)
+            if let outputSpecs = outputSpecs {
+                HStack(spacing: 12) {
+                    Label("Predicted", systemImage: "wand.and.stars")
+                        .font(.caption2)
+                        .foregroundColor(.purple)
+                    
+                    Text("\(outputSpecs.codec) • \(outputSpecs.resolutionFormatted) • \(outputSpecs.frameRateFormatted)")
+                        .font(.caption2)
+                        .foregroundColor(.purple)
+                    
+                    if outputSpecs.isHDR {
+                        Text("HDR")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.2))
+                            .foregroundColor(.orange)
+                            .cornerRadius(3)
+                    } else {
+                        Text("SDR")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.gray.opacity(0.2))
+                            .foregroundColor(.gray)
+                            .cornerRadius(3)
+                    }
+                }
+                
+                HStack(spacing: 12) {
+                    Text("")
+                        .font(.caption2)
+                        .frame(width: 45) // Align with label above
+                    
+                    Text("\(outputSpecs.bitrateFormatted) • \(outputSpecs.colorSpaceDescription)")
+                        .font(.caption2)
+                        .foregroundColor(.purple)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 #Preview {
     ConversionQueueView(
         conversionManager: ConversionManager(),
@@ -269,6 +398,7 @@ struct ConversionItemView: View {
         baselineInMillimeters: 64.0,
         horizontalFOV: 180.0,
         outputDirectory: nil,
-        audioConfiguration: AudioConfiguration()
+        audioConfiguration: AudioConfiguration(),
+        qualitySettings: QualitySettings()
     )
 }
